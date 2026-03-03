@@ -2,6 +2,8 @@ import streamlit as st
 import openpyxl
 from io import BytesIO
 import gc
+from openpyxl.formula.translate import Translator
+from copy import copy
 
 # ---------------------------------------------------------
 # SEÇÃO 1: FUNÇÕES DE APOIO E REGRAS DE NEGÓCIO
@@ -22,7 +24,8 @@ def copiar_originacao_para_base(ws_parceiro, ws_base):
     Copia os dados da coluna A (1) até Q (17) da aba do Parceiro
     para a primeira linha vazia da aba Base.
     """
-    linha_destino = encontrar_ultima_linha(ws_base) + 1
+    linha_destino_inicio = encontrar_ultima_linha(ws_base) + 1
+    linha_destino = linha_destino_inicio
     registros_copiados = 0
     
     # iter_rows com values_only=True é crucial para performance com arquivos de 10MB+
@@ -36,7 +39,6 @@ def copiar_originacao_para_base(ws_parceiro, ws_base):
             
         for col_idx, cell_origem in enumerate(row_values, start=1):
             cell_destino = ws_base.cell(row=linha_destino, column=col_idx)
-
             cell_destino.value = cell_origem.value
 
             # Copia o formato da célula (Isso é o que salva o CNPJ da notação científica,
@@ -46,8 +48,39 @@ def copiar_originacao_para_base(ws_parceiro, ws_base):
             
         linha_destino += 1
         registros_copiados += 1
+
+    linha_destino_fim = linha_destino - 1
         
-    return registros_copiados
+    return linha_destino_inicio, linha_destino_fim, registros_copiados
+
+def preencher_formulas_colunas_r_v(ws_base, linha_inicio, linha_fim):
+    """
+    Arrasta as fórmulas e valores das colunas R(18) a V(22) da última linha 
+    preenchida para as novas linhas inseridas, atualizando as referências.
+    """
+    linha_referencia = linha_inicio - 1
+    
+    if linha_referencia < 2:
+        raise ValueError("A aba BASE precisa ter pelo menos uma linha de dados com fórmulas para servir de molde.")
+        
+    colunas_alvo = range(18, 23) # 18=R, 19=S, 20=T, 21=U, 22=V
+    
+    for row in range(linha_inicio, linha_fim + 1):
+        for col in colunas_alvo:
+            celula_origem = ws_base.cell(row=linha_referencia, column=col)
+            celula_destino = ws_base.cell(row=row, column=col)
+            
+            # Copia o estilo completo (cor de fundo amarela, bordas, fontes)
+            if celula_origem.has_style:
+                celula_destino._style = copy(celula_origem._style)
+            
+            # Se a célula for uma FÓRMULA
+            if celula_origem.data_type == 'f':
+                nova_formula = Translator(celula_origem.value, origin=celula_origem.coordinate).translate_formula(celula_destino.coordinate)
+                celula_destino.value = nova_formula
+            # Se for TEXTO ESTÁTICO (ex: "Não pago" ou "setembro")
+            else:
+                celula_destino.value = celula_origem.value
 
 # ---------------------------------------------------------
 # SEÇÃO 2: INTERFACE STREAMLIT
