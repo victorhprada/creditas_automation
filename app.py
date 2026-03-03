@@ -82,6 +82,40 @@ def preencher_formulas_colunas_r_v(ws_base, linha_inicio, linha_fim):
             else:
                 celula_destino.value = celula_origem.value
 
+def copiar_historico_filtrado(ws_origem, ws_destino, mes_filtro):
+    """
+    Varre a aba de histórico do parceiro, filtra pela coluna Q (17) e, 
+    se bater com o mês desejado, copia a linha (A-Q) para a base.
+    """
+    linha_destino = encontrar_ultima_linha(ws_destino) + 1
+    registros_copiados = 0
+    
+    for row in ws_origem.iter_rows(min_row=2, max_col=17):
+        
+        # Ignora linhas totalmente vazias
+        if not any(cell.value is not None and str(cell.value).strip() != "" for cell in row):
+            continue
+            
+        # A coluna Q é a 17ª coluna. No Python (que começa a contar do 0), é o índice 16 da tupla 'row'.
+        celula_mes = row[16]
+        
+        # Transforma o valor da célula em string limpa para comparar com o que o usuário digitou
+        valor_mes_celula = str(celula_mes.value).strip() if celula_mes.value else ""
+        
+        # A CATRACA: Se o mês for igual ao digitado, nós copiamos a linha
+        if valor_mes_celula == mes_filtro.strip():
+            for col_idx, cell_origem in enumerate(row, start=1):
+                celula_destino = ws_destino.cell(row=linha_destino, column=col_idx)
+                celula_destino.value = cell_origem.value
+                
+                if cell_origem.has_style:
+                    celula_destino.number_format = cell_origem.number_format
+            
+            linha_destino += 1
+            registros_copiados += 1
+            
+    return registros_copiados
+
 # ---------------------------------------------------------
 # SEÇÃO 2: INTERFACE STREAMLIT
 # ---------------------------------------------------------
@@ -92,6 +126,7 @@ st.title("📊 Processador de Benefícios e Comissionamento")
 with st.form("form_processamento"):
     arquivo_parceiro = st.file_uploader("1️⃣ Arquivo do Parceiro (Benefits_Comissionamento_Sênior.xlsx)", type=["xlsx"])
     arquivo_base = st.file_uploader("2️⃣ Arquivo BASE (Acompanhamento creditas base.xlsx)", type=["xlsx", "xlsm"])
+    mes_referencia = st.text_input("📅 Mês de Referência (Filtro da Coluna Q)", value="01-2026", help="Digite no formato MM-AAAA")
 
     submit = st.form_submit_button("Iniciar", type="primary")
 
@@ -128,13 +163,29 @@ if submit:
                     preencher_formulas_colunas_r_v(ws_base, linha_inicio, linha_fim)
                     st.write("✅ Fórmulas aplicadas com sucesso!")
 
+                aba_parceiro_hist = "Histórico de relatórios de comi"
+                aba_base_parcelas = "Parcelas pagas"
+
+                st.write(f"⚙️ Validando abas da Etapa 2...")
+                if aba_parceiro_hist not in parceiro_wb.sheetnames:
+                    raise ValueError(f"Aba '{aba_parceiro_hist}' não encontrada no arquivo do PARCEIRO.")
+                if aba_base_parcelas not in base_wb.sheetnames:
+                    raise ValueError(f"Aba '{aba_base_parcelas}' não encontrada no arquivo BASE.")
+
+                ws_hist = parceiro_wb[aba_parceiro_hist]
+                ws_parcelas = base_wb[aba_base_parcelas]
+
+                st.write(f"🔄 Filtrando ({mes_referencia}) e copiando para '{aba_base_parcelas}'...")
+                qtd_hist = copiar_historico_filtrado(ws_hist, ws_parcelas, mes_referencia)
+                st.write(f"✅ {qtd_hist} linhas históricas copiadas com sucesso!")
+
                 st.write("💾 Gerando arquivo atualizado para download...")
                 output = BytesIO()
                 base_wb.save(output)
                 output.seek(0)
 
                 # Limpeza severa de memória (obrigatório para nosso cenário de 10MB+)
-                del parceiro_wb, base_wb, ws_parceiro, ws_base
+                del parceiro_wb, base_wb, ws_parceiro, ws_base, ws_hist, ws_parcelas
                 gc.collect()
 
                 status.update(label="✅ Processamento Concluído!", state="complete", expanded=False)
