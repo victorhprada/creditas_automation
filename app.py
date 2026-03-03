@@ -19,7 +19,7 @@ def encontrar_ultima_linha(ws, coluna_referencia=1):
 
 def copiar_originacao_para_base(ws_parceiro, ws_base):
     """
-    Copia os dados da coluna A (1) até P (16) da aba do Parceiro
+    Copia os dados da coluna A (1) até Q (17) da aba do Parceiro
     para a primeira linha vazia da aba Base.
     """
     linha_destino = encontrar_ultima_linha(ws_base) + 1
@@ -27,14 +27,22 @@ def copiar_originacao_para_base(ws_parceiro, ws_base):
     
     # iter_rows com values_only=True é crucial para performance com arquivos de 10MB+
     # min_row=2 pula o cabeçalho do parceiro. max_col=16 pega de A até P.
-    for row_values in ws_parceiro.iter_rows(min_row=2, max_col=16, values_only=True):
+    for row_values in ws_parceiro.iter_rows(min_row=2, max_col=17):
         
-        # Ignora linhas 100% vazias
-        if not any(row_values):
+        # Validação de segurança: ignora linhas onde todas as células estão vazias
+        # (usamos uma compreensão de lista para checar os valores)
+        if not any(cell.value is not None and str(cell.value).strip() != "" for cell in row_values):
             continue
             
-        for col_idx, value in enumerate(row_values, start=1):
-            ws_base.cell(row=linha_destino, column=col_idx, value=value)
+        for col_idx, cell_origem in enumerate(row_values, start=1):
+            cell_destino = ws_base.cell(row=linha_destino, column=col_idx)
+
+            cell_destino.value = cell_origem.value
+
+            # Copia o formato da célula (Isso é o que salva o CNPJ da notação científica,
+            # além de preservar formatação de datas e moedas)
+            if cell_origem.has_style:
+                cell_destino.number_format = cell_origem.number_format
             
         linha_destino += 1
         registros_copiados += 1
@@ -52,7 +60,7 @@ with st.form("form_processamento"):
     arquivo_parceiro = st.file_uploader("1️⃣ Arquivo do Parceiro (Benefits_Comissionamento_Sênior.xlsx)", type=["xlsx"])
     arquivo_base = st.file_uploader("2️⃣ Arquivo BASE (Acompanhamento creditas base.xlsx)", type=["xlsx", "xlsm"])
 
-    submit = st.form_submit_button("Iniciar Cópia de Dados", type="primary")
+    submit = st.form_submit_button("Iniciar", type="primary")
 
 if submit:
     if not arquivo_parceiro or not arquivo_base:
