@@ -120,8 +120,13 @@ if submit:
                 ws_base = base_wb[aba_base_nome]
 
                 st.write(f"🔄 Copiando dados de '{aba_parceiro_nome}' para '{aba_base_nome}'...")
-                qtd_copiada = copiar_originacao_para_base(ws_parceiro, ws_base)
+                linha_inicio, linha_fim, qtd_copiada = copiar_originacao_para_base(ws_parceiro, ws_base)
                 st.write(f"✅ {qtd_copiada} linhas copiadas com sucesso!")
+
+                if qtd_copiada > 0:
+                    st.write("🔄 Aplicando fórmulas e estilos nas colunas R até V...")
+                    preencher_formulas_colunas_r_v(ws_base, linha_inicio, linha_fim)
+                    st.write("✅ Fórmulas aplicadas com sucesso!")
 
                 st.write("💾 Gerando arquivo atualizado para download...")
                 output = BytesIO()
