@@ -91,6 +91,9 @@ def copiar_historico_filtrado(ws_origem, ws_destino, mes_filtro):
     linha_destino = encontrar_ultima_linha(ws_destino) + 1
     registros_copiados = 0
 
+    meses_extenso = {1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril', 5: 'Maio', 6: 'Junho', 
+                     7: 'Julho', 8: 'Agosto', 9: 'Setembro', 10: 'Outubro', 11: 'Novembro', 12: 'Dezembro'}
+
     # Transforma o input "01-2026" no formato que o Excel guardou: "01/01/2026"
     try:
         mes_input, ano_input = mes_filtro.strip().split('-')
@@ -120,10 +123,28 @@ def copiar_historico_filtrado(ws_origem, ws_destino, mes_filtro):
         if valor_mes_celula == data_alvo_str:
             for col_idx, cell_origem in enumerate(row, start=1):
                 celula_destino = ws_destino.cell(row=linha_destino, column=col_idx)
-                celula_destino.value = cell_origem.value
                 
+                if col_idx == 16 and cell_origem.value is not None:
+                    valor_p = cell_origem.value
+                    if isinstance(valor_p, datetime.date):
+                        celula_destino.value = meses_extenso.get(valor_p.month, valor_p)
+                    elif isinstance(valor_p, str) and "/" in valor_p:
+                        try:
+                            mes_num = int(valor_p.split("/")[1])
+                            celula_destino.value = meses_extenso.get(mes_num, valor_p)
+                        except:
+                            celula_destino.value = valor_p
+                    else:
+                        celula_destino.value = cell_origem.value
+                else:
+                    celula_destino.value = cell_origem.value
+
                 if cell_origem.has_style:
                     celula_destino.number_format = cell_origem.number_format
+
+            ws_destino.cell(row=linha_destino, column=18).value = f"=N{linha_destino}/M{linha_destino}"
+            ws_destino.cell(row=linha_destino, column=18).number_format = "0.00%"
+            ws_destino.cell(row=linha_destino, column=19).value = mes_faturamento
             
             linha_destino += 1
             registros_copiados += 1
@@ -141,6 +162,7 @@ with st.form("form_processamento"):
     arquivo_parceiro = st.file_uploader("1️⃣ Arquivo do Parceiro (Benefits_Comissionamento_Sênior.xlsx)", type=["xlsx"])
     arquivo_base = st.file_uploader("2️⃣ Arquivo BASE (Acompanhamento creditas base.xlsx)", type=["xlsx", "xlsm"])
     mes_referencia = st.text_input("📅 Mês de Referência (Filtro da Coluna Q)", value="01-2026", help="Digite no formato MM-AAAA")
+    mes_faturamento = st.text_input("🏷️ Mês de Faturamento (Coluna S)", value="Janeiro", help="Ex: Janeiro, Fevereiro, etc.")
 
     submit = st.form_submit_button("Iniciar", type="primary")
 
@@ -190,7 +212,7 @@ if submit:
                 ws_parcelas = base_wb[aba_base_parcelas]
 
                 st.write(f"🔄 Filtrando ({mes_referencia}) e copiando para '{aba_base_parcelas}'...")
-                qtd_hist = copiar_historico_filtrado(ws_hist, ws_parcelas, mes_referencia)
+                qtd_hist = copiar_historico_filtrado(ws_hist, ws_parcelas, mes_referencia, mes_faturamento)
                 st.write(f"✅ {qtd_hist} linhas históricas copiadas com sucesso!")
 
                 st.write("💾 Gerando arquivo atualizado para download...")
