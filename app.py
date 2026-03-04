@@ -83,7 +83,7 @@ def preencher_formulas_colunas_r_v(ws_base, linha_inicio, linha_fim):
             else:
                 celula_destino.value = celula_origem.value
 
-def copiar_historico_filtrado(ws_origem, ws_destino, mes_filtro):
+def copiar_historico_filtrado(ws_origem, ws_destino, mes_filtro, mes_faturamento):
     """
     Varre a aba de histórico do parceiro, filtra pela coluna Q (17) e, 
     se bater com o mês desejado, copia a linha (A-Q) para a base.
