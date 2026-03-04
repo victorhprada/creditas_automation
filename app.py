@@ -4,6 +4,7 @@ from io import BytesIO
 import gc
 from openpyxl.formula.translate import Translator
 from copy import copy
+import datetime
 
 # ---------------------------------------------------------
 # SEÇÃO 1: FUNÇÕES DE APOIO E REGRAS DE NEGÓCIO
@@ -89,6 +90,14 @@ def copiar_historico_filtrado(ws_origem, ws_destino, mes_filtro):
     """
     linha_destino = encontrar_ultima_linha(ws_destino) + 1
     registros_copiados = 0
+
+    # Transforma o input "01-2026" no formato que o Excel guardou: "01/01/2026"
+    try:
+        mes_input, ano_input = mes_filtro.strip().split('-')
+        data_alvo_str = f"01/{mes_input}/{ano_input}"
+    except ValueError:
+        # Fallback de segurança caso o usuário digite fora do padrão
+        data_alvo_str = mes_filtro.strip()
     
     for row in ws_origem.iter_rows(min_row=2, max_col=17):
         
@@ -98,12 +107,17 @@ def copiar_historico_filtrado(ws_origem, ws_destino, mes_filtro):
             
         # A coluna Q é a 17ª coluna. No Python (que começa a contar do 0), é o índice 16 da tupla 'row'.
         celula_mes = row[16]
-        
-        # Transforma o valor da célula em string limpa para comparar com o que o usuário digitou
-        valor_mes_celula = str(celula_mes.value).strip() if celula_mes.value else ""
+        valor_bruto = celula_mes.value
+        valor_mes_celula = ""
+
+        # Padroniza o que vem do Excel para o formato "DD/MM/YYYY"
+        if isinstance(valor_bruto, datetime.date):
+            valor_mes_celula = valor_bruto.strftime("%d/%m/%Y")
+        elif valor_bruto is not None:
+            valor_mes_celula = str(valor_bruto).strip().split(" ")[0]
         
         # A CATRACA: Se o mês for igual ao digitado, nós copiamos a linha
-        if valor_mes_celula == mes_filtro.strip():
+        if valor_mes_celula == data_alvo_str:
             for col_idx, cell_origem in enumerate(row, start=1):
                 celula_destino = ws_destino.cell(row=linha_destino, column=col_idx)
                 celula_destino.value = cell_origem.value
