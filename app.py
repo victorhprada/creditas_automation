@@ -149,9 +149,20 @@ def copiar_historico_filtrado(ws_origem, ws_destino, ws_nova_aba, mes_filtro, me
                     celula_destino.number_format = cell_origem.number_format
                     celula_nova.number_format = cell_origem.number_format
 
+            # --- Fórmulas EXCLUSIVAS da aba Parcelas Pagas ---
             ws_destino.cell(row=linha_destino, column=18).value = f"=N{linha_destino}/M{linha_destino}"
             ws_destino.cell(row=linha_destino, column=18).number_format = "0.00%"
             ws_destino.cell(row=linha_destino, column=19).value = mes_faturamento
+
+            # --- Fórmulas EXCLUSIVAS da nova aba MENSAL ---
+            # 1. Coluna R (18): =N{row}/M{row}
+            ws_nova_aba.cell(row=linha_destino_nova_aba, column=18).value = f"=N{linha_destino_nova_aba}/M{linha_destino_nova_aba}"
+            ws_nova_aba.cell(row=linha_destino_nova_aba, column=18).number_format = "0.00%" 
+            
+            # 2. Coluna S (19): =M{row} * 3.5%
+            # (Usamos ponto no 3.5% para o Excel interpretar corretamente a fórmula)
+            ws_nova_aba.cell(row=linha_destino_nova_aba, column=19).value = f"=M{linha_destino_nova_aba}*3.5%"
+            ws_nova_aba.cell(row=linha_destino_nova_aba, column=19).number_format = '"R$" #,##0.00' # Formato de Moeda
             
             linha_destino += 1
             linha_destino_nova_aba += 1
