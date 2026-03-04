@@ -246,7 +246,7 @@ if submit:
                             ws_nova = base_wb[nome_nova_aba]
 
                 st.write(f"🔄 Filtrando ({mes_referencia}) e copiando para '{aba_base_parcelas}'...")
-                qtd_hist = copiar_historico_filtrado(ws_hist, ws_parcelas, mes_referencia, mes_faturamento)
+                qtd_hist = copiar_historico_filtrado(ws_hist, ws_parcelas, mes_referencia, mes_faturamento, ws_nova)
                 st.write(f"✅ {qtd_hist} linhas históricas copiadas com sucesso!")
 
                 st.write("💾 Gerando arquivo atualizado para download...")
