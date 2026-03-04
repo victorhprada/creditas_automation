@@ -242,8 +242,8 @@ if submit:
                         c_destino.value = c_origem.value
                         if c_origem.has_style:
                             c_destino._style = copy(c_origem._style)
-                    else:
-                        ws_nova = base_wb[nome_nova_aba]
+                else:
+                    ws_nova = base_wb[nome_nova_aba]
 
                 st.write(f"🔄 Filtrando ({mes_referencia}) e copiando para '{aba_base_parcelas}'...")
                 qtd_hist = copiar_historico_filtrado(ws_hist, ws_parcelas, ws_nova, mes_referencia, mes_faturamento)
