@@ -2,6 +2,8 @@ import streamlit as st
 import openpyxl
 from io import BytesIO
 import gc
+import re
+import unicodedata
 from openpyxl.formula.translate import Translator
 from copy import copy
 import datetime
@@ -9,6 +11,68 @@ import datetime
 # ---------------------------------------------------------
 # SEÇÃO 1: FUNÇÕES DE APOIO E REGRAS DE NEGÓCIO
 # ---------------------------------------------------------
+
+def normalizar_texto(texto):
+    if texto is None:
+        return ""
+    texto = str(texto).strip().lower()
+    texto = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("ascii")
+    return texto
+
+def obter_mes_numero_por_nome(nome_mes):
+    meses = {
+        "janeiro": 1, "jan": 1,
+        "fevereiro": 2, "fev": 2,
+        "marco": 3, "mar": 3,
+        "abril": 4, "abr": 4,
+        "maio": 5, "mai": 5,
+        "junho": 6, "jun": 6,
+        "julho": 7, "jul": 7,
+        "agosto": 8, "ago": 8,
+        "setembro": 9, "set": 9,
+        "outubro": 10, "out": 10,
+        "novembro": 11, "nov": 11,
+        "dezembro": 12, "dez": 12,
+    }
+    return meses.get(normalizar_texto(nome_mes))
+
+def obter_mes_anterior_numero(mes_faturamento):
+    mes_atual = obter_mes_numero_por_nome(mes_faturamento)
+    if mes_atual is None:
+        return None
+    return 12 if mes_atual == 1 else mes_atual - 1
+
+def extrair_mes_coluna_m(valor):
+    if isinstance(valor, (datetime.date, datetime.datetime)):
+        return valor.month
+
+    if valor is None:
+        return None
+
+    texto = str(valor).strip()
+    if not texto:
+        return None
+
+    mes_nome = obter_mes_numero_por_nome(texto)
+    if mes_nome:
+        return mes_nome
+
+    m = re.match(r"^(\d{1,2})/(\d{1,2})(?:/\d{2,4})?$", texto)
+    if m:
+        p1 = int(m.group(1))
+        p2 = int(m.group(2))
+        if 1 <= p2 <= 12:
+            return p2
+        if 1 <= p1 <= 12:
+            return p1
+
+    m_iso = re.match(r"^\d{4}-(\d{1,2})-\d{1,2}$", texto)
+    if m_iso:
+        mes = int(m_iso.group(1))
+        if 1 <= mes <= 12:
+            return mes
+
+    return None
 
 def encontrar_ultima_linha(ws, coluna_referencia=1):
     """
@@ -20,30 +84,35 @@ def encontrar_ultima_linha(ws, coluna_referencia=1):
             return row
     return 1 # Retorna 1 se estiver totalmente vazia (apenas header)
 
-def copiar_originacao_para_base(ws_parceiro, ws_base):
+def copiar_originacao_para_base(ws_parceiro, ws_base, mes_faturamento):
     """
-    Copia os dados da coluna A (1) até Q (17) da aba do Parceiro
-    para a primeira linha vazia da aba Base.
+    Filtra a aba do Parceiro pela coluna M (mês anterior ao faturamento)
+    e copia as colunas A(1) até Q(17) para a primeira linha vazia da aba Base.
     """
+    mes_alvo = obter_mes_anterior_numero(mes_faturamento)
+    if mes_alvo is None:
+        raise ValueError(
+            "Mês de faturamento inválido. Use nomes como: Janeiro, Fevereiro, Março..."
+        )
+
     linha_destino_inicio = encontrar_ultima_linha(ws_base) + 1
     linha_destino = linha_destino_inicio
     registros_copiados = 0
     
-    # iter_rows com values_only=True é crucial para performance com arquivos de 10MB+
-    # min_row=2 pula o cabeçalho do parceiro. max_col=16 pega de A até P.
     for row_values in ws_parceiro.iter_rows(min_row=2, max_col=17):
         
-        # Validação de segurança: ignora linhas onde todas as células estão vazias
-        # (usamos uma compreensão de lista para checar os valores)
         if not any(cell.value is not None and str(cell.value).strip() != "" for cell in row_values):
+            continue
+
+        valor_coluna_m = row_values[12].value  # coluna M = índice 12 (0-based)
+        mes_coluna_m = extrair_mes_coluna_m(valor_coluna_m)
+        if mes_coluna_m != mes_alvo:
             continue
             
         for col_idx, cell_origem in enumerate(row_values, start=1):
             cell_destino = ws_base.cell(row=linha_destino, column=col_idx)
             cell_destino.value = cell_origem.value
 
-            # Copia o formato da célula (Isso é o que salva o CNPJ da notação científica,
-            # além de preservar formatação de datas e moedas)
             if cell_origem.has_style:
                 cell_destino.number_format = cell_origem.number_format
             
@@ -221,8 +290,8 @@ if submit:
                 ws_parceiro = parceiro_wb[aba_parceiro_nome]
                 ws_base = base_wb[aba_base_nome]
 
-                st.write(f"🔄 Copiando dados de '{aba_parceiro_nome}' para '{aba_base_nome}'...")
-                linha_inicio, linha_fim, qtd_copiada = copiar_originacao_para_base(ws_parceiro, ws_base)
+                st.write(f"🔄 Filtrando coluna M pelo mês anterior a '{mes_faturamento}' e copiando para '{aba_base_nome}'...")
+                linha_inicio, linha_fim, qtd_copiada = copiar_originacao_para_base(ws_parceiro, ws_base, mes_faturamento)
                 st.write(f"✅ {qtd_copiada} linhas copiadas com sucesso!")
 
                 if qtd_copiada > 0:
