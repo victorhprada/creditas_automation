@@ -261,8 +261,8 @@ st.title("📊 Processador de Benefícios e Comissionamento")
 with st.form("form_processamento"):
     arquivo_parceiro = st.file_uploader("1️⃣ Arquivo do Parceiro (Benefits_Comissionamento_Sênior.xlsx)", type=["xlsx"])
     arquivo_base = st.file_uploader("2️⃣ Arquivo BASE (Acompanhamento creditas base.xlsx)", type=["xlsx", "xlsm"])
-    mes_referencia = st.text_input("📅 Mês de Referência (Filtro da Coluna Q)", value="01-2026", help="Digite no formato MM-AAAA")
-    mes_faturamento = st.text_input("🏷️ Mês de Faturamento (Coluna S)", value="Janeiro", help="Ex: Janeiro, Fevereiro, etc.")
+    mes_referencia = st.text_input("📅 Mês de Referência Comissionamento (Filtro da Coluna Q)", value="01-2026", help="Digite no formato MM-AAAA")
+    mes_faturamento = st.text_input("🏷️ Mês de Faturamento (Coluna M)", value="Janeiro", help="Ex: Janeiro, Fevereiro, etc.")
 
     submit = st.form_submit_button("Iniciar", type="primary")
 
