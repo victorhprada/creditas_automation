@@ -250,6 +250,53 @@ def copiar_historico_filtrado(ws_origem, ws_destino, ws_nova_aba, mes_filtro, me
             
     return registros_copiados
 
+def copiar_antecipo_para_base(ws_hist_antecipo, ws_base_antecipo, mes_referencia):
+    """
+    Filtra a aba 'Histórico Antecipo' do parceiro pela coluna G (mês anterior ao
+    mes_referencia, no formato DD/MM/YYYY) e copia as colunas A–J para a aba
+    'ANTECIPO' da base na primeira linha vazia.
+    """
+    mes_filtro = calcular_mes_anterior(mes_referencia)
+    mes_alvo, ano_alvo = map(int, mes_filtro.split('-'))
+
+    linha_destino = encontrar_ultima_linha(ws_base_antecipo) + 1
+    registros_copiados = 0
+
+    for row in ws_hist_antecipo.iter_rows(min_row=2, max_col=10):
+
+        if not any(cell.value is not None and str(cell.value).strip() != "" for cell in row):
+            continue
+
+        valor_g = row[6].value  # coluna G = índice 6 (0-based)
+
+        if isinstance(valor_g, (datetime.date, datetime.datetime)):
+            mes_celula = valor_g.month
+            ano_celula = valor_g.year
+        elif isinstance(valor_g, str):
+            try:
+                partes = valor_g.strip().split('/')
+                # formato DD/MM/YYYY
+                mes_celula = int(partes[1])
+                ano_celula = int(partes[2])
+            except (IndexError, ValueError):
+                continue
+        else:
+            continue
+
+        if mes_celula != mes_alvo or ano_celula != ano_alvo:
+            continue
+
+        for col_idx, cell_origem in enumerate(row, start=1):
+            cell_destino = ws_base_antecipo.cell(row=linha_destino, column=col_idx)
+            cell_destino.value = cell_origem.value
+            if cell_origem.has_style:
+                cell_destino.number_format = cell_origem.number_format
+
+        linha_destino += 1
+        registros_copiados += 1
+
+    return registros_copiados
+
 def gerar_nome_aba_mes(mes_referencia):
     """
     Converte o input '01-2026' no formato de aba 'Jan.26'.
@@ -341,12 +388,28 @@ if submit:
                 qtd_hist = copiar_historico_filtrado(ws_hist, ws_parcelas, ws_nova, mes_filtro, mes_faturamento)
                 st.write(f"✅ {qtd_hist} linhas históricas copiadas com sucesso!")
 
+                aba_parceiro_antecipo = "Histórico Antecipo"
+                aba_base_antecipo = "ANTECIPO"
+
+                st.write("⚙️ Validando abas da Etapa 3...")
+                if aba_parceiro_antecipo not in parceiro_wb.sheetnames:
+                    raise ValueError(f"Aba '{aba_parceiro_antecipo}' não encontrada no arquivo do PARCEIRO.")
+                if aba_base_antecipo not in base_wb.sheetnames:
+                    raise ValueError(f"Aba '{aba_base_antecipo}' não encontrada no arquivo BASE.")
+
+                ws_hist_antecipo = parceiro_wb[aba_parceiro_antecipo]
+                ws_base_antecipo = base_wb[aba_base_antecipo]
+
+                st.write(f"🔄 Filtrando '{aba_parceiro_antecipo}' (coluna G) por {calcular_mes_anterior(mes_referencia)} e copiando para '{aba_base_antecipo}'...")
+                qtd_antecipo = copiar_antecipo_para_base(ws_hist_antecipo, ws_base_antecipo, mes_referencia)
+                st.write(f"✅ {qtd_antecipo} linhas de antecipo copiadas com sucesso!")
+
                 st.write("💾 Gerando arquivo atualizado para download...")
                 output = BytesIO()
                 base_wb.save(output)
                 output.seek(0)
 
-                del parceiro_wb, base_wb, ws_parceiro, ws_base, ws_hist, ws_parcelas, ws_nova
+                del parceiro_wb, base_wb, ws_parceiro, ws_base, ws_hist, ws_parcelas, ws_nova, ws_hist_antecipo, ws_base_antecipo
                 gc.collect()
 
                 status.update(label="✅ Processamento Concluído!", state="complete", expanded=False)
