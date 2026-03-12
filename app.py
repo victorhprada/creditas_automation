@@ -82,6 +82,15 @@ def preencher_formulas_colunas_r_v(ws_base, linha_inicio, linha_fim):
             else:
                 celula_destino.value = celula_origem.value
 
+def calcular_mes_anterior(mes_referencia):
+    mes, ano = map(int, mes_referencia.split('-'))
+    if mes == 1:
+        mes = 12
+        ano -= 1
+    else:
+        mes -= 1
+    return f"{mes:02d}-{ano}"
+
 def copiar_historico_filtrado(ws_origem, ws_destino, mes_filtro):
     """
     Varre a aba de histórico do parceiro, filtra pela coluna Q (17) e, 
@@ -175,8 +184,9 @@ if submit:
                 ws_hist = parceiro_wb[aba_parceiro_hist]
                 ws_parcelas = base_wb[aba_base_parcelas]
 
-                st.write(f"🔄 Filtrando ({mes_referencia}) e copiando para '{aba_base_parcelas}'...")
-                qtd_hist = copiar_historico_filtrado(ws_hist, ws_parcelas, mes_referencia)
+                mes_filtro = calcular_mes_anterior(mes_referencia)
+                st.write(f"🔄 Filtrando por {mes_filtro} (mês anterior a {mes_referencia}) e copiando para '{aba_base_parcelas}'...")
+                qtd_hist = copiar_historico_filtrado(ws_hist, ws_parcelas, mes_filtro)
                 st.write(f"✅ {qtd_hist} linhas históricas copiadas com sucesso!")
 
                 st.write("💾 Gerando arquivo atualizado para download...")
