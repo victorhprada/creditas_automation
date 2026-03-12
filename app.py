@@ -2,12 +2,90 @@ import streamlit as st
 import openpyxl
 from io import BytesIO
 import gc
+import re
+import unicodedata
 from openpyxl.formula.translate import Translator
 from copy import copy
+import datetime
 
 # ---------------------------------------------------------
 # SEÇÃO 1: FUNÇÕES DE APOIO E REGRAS DE NEGÓCIO
 # ---------------------------------------------------------
+
+def normalizar_texto(texto):
+    if texto is None:
+        return ""
+    texto = str(texto).strip().lower()
+    texto = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("ascii")
+    return texto
+
+def obter_mes_numero_por_nome(nome_mes):
+    meses = {
+        "janeiro": 1, "jan": 1,
+        "fevereiro": 2, "fev": 2,
+        "marco": 3, "mar": 3,
+        "abril": 4, "abr": 4,
+        "maio": 5, "mai": 5,
+        "junho": 6, "jun": 6,
+        "julho": 7, "jul": 7,
+        "agosto": 8, "ago": 8,
+        "setembro": 9, "set": 9,
+        "outubro": 10, "out": 10,
+        "novembro": 11, "nov": 11,
+        "dezembro": 12, "dez": 12,
+    }
+    return meses.get(normalizar_texto(nome_mes))
+
+def obter_mes_anterior_numero(mes_faturamento):
+    mes_atual = obter_mes_numero_por_nome(mes_faturamento)
+    if mes_atual is None:
+        return None
+    return 12 if mes_atual == 1 else mes_atual - 1
+
+def extrair_mes_coluna_m(valor):
+    if isinstance(valor, (datetime.date, datetime.datetime)):
+        return valor.month
+
+    if valor is None:
+        return None
+
+    texto = str(valor).strip()
+    if not texto:
+        return None
+
+    mes_nome = obter_mes_numero_por_nome(texto)
+    if mes_nome:
+        return mes_nome
+
+    m = re.match(r"^(\d{1,2})/(\d{1,2})(?:/\d{2,4})?$", texto)
+    if m:
+        p1 = int(m.group(1))
+        p2 = int(m.group(2))
+        if 1 <= p2 <= 12:
+            return p2
+        if 1 <= p1 <= 12:
+            return p1
+
+    m_iso = re.match(r"^\d{4}-(\d{1,2})-\d{1,2}$", texto)
+    if m_iso:
+        mes = int(m_iso.group(1))
+        if 1 <= mes <= 12:
+            return mes
+
+    return None
+
+def calcular_mes_anterior(mes_referencia):
+    """
+    Recebe 'MM-AAAA' e retorna o mês anterior no mesmo formato.
+    Exemplo: '02-2026' -> '01-2026'
+    """
+    mes, ano = map(int, mes_referencia.strip().split('-'))
+    if mes == 1:
+        mes = 12
+        ano -= 1
+    else:
+        mes -= 1
+    return f"{mes:02d}-{ano}"
 
 def encontrar_ultima_linha(ws, coluna_referencia=1):
     """
@@ -19,30 +97,35 @@ def encontrar_ultima_linha(ws, coluna_referencia=1):
             return row
     return 1 # Retorna 1 se estiver totalmente vazia (apenas header)
 
-def copiar_originacao_para_base(ws_parceiro, ws_base):
+def copiar_originacao_para_base(ws_parceiro, ws_base, mes_faturamento):
     """
-    Copia os dados da coluna A (1) até Q (17) da aba do Parceiro
-    para a primeira linha vazia da aba Base.
+    Filtra a aba do Parceiro pela coluna M (mês anterior ao faturamento)
+    e copia as colunas A(1) até Q(17) para a primeira linha vazia da aba Base.
     """
+    mes_alvo = obter_mes_anterior_numero(mes_faturamento)
+    if mes_alvo is None:
+        raise ValueError(
+            "Mês de faturamento inválido. Use nomes como: Janeiro, Fevereiro, Março..."
+        )
+
     linha_destino_inicio = encontrar_ultima_linha(ws_base) + 1
     linha_destino = linha_destino_inicio
     registros_copiados = 0
     
-    # iter_rows com values_only=True é crucial para performance com arquivos de 10MB+
-    # min_row=2 pula o cabeçalho do parceiro. max_col=16 pega de A até P.
     for row_values in ws_parceiro.iter_rows(min_row=2, max_col=17):
         
-        # Validação de segurança: ignora linhas onde todas as células estão vazias
-        # (usamos uma compreensão de lista para checar os valores)
         if not any(cell.value is not None and str(cell.value).strip() != "" for cell in row_values):
+            continue
+
+        valor_coluna_m = row_values[12].value  # coluna M = índice 12 (0-based)
+        mes_coluna_m = extrair_mes_coluna_m(valor_coluna_m)
+        if mes_coluna_m != mes_alvo:
             continue
             
         for col_idx, cell_origem in enumerate(row_values, start=1):
             cell_destino = ws_base.cell(row=linha_destino, column=col_idx)
             cell_destino.value = cell_origem.value
 
-            # Copia o formato da célula (Isso é o que salva o CNPJ da notação científica,
-            # além de preservar formatação de datas e moedas)
             if cell_origem.has_style:
                 cell_destino.number_format = cell_origem.number_format
             
@@ -82,22 +165,25 @@ def preencher_formulas_colunas_r_v(ws_base, linha_inicio, linha_fim):
             else:
                 celula_destino.value = celula_origem.value
 
-def calcular_mes_anterior(mes_referencia):
-    mes, ano = map(int, mes_referencia.split('-'))
-    if mes == 1:
-        mes = 12
-        ano -= 1
-    else:
-        mes -= 1
-    return f"{mes:02d}-{ano}"
-
-def copiar_historico_filtrado(ws_origem, ws_destino, mes_filtro):
+def copiar_historico_filtrado(ws_origem, ws_destino, ws_nova_aba, mes_filtro, mes_faturamento):
     """
-    Varre a aba de histórico do parceiro, filtra pela coluna Q (17) e, 
-    se bater com o mês desejado, copia a linha (A-Q) para a base.
+    Filtra a origem e copia os dados para DOIS lugares simultaneamente:
+    1. Para a aba 'Parcelas pagas' (com fórmulas extras)
+    2. Para a nova aba mensal (apenas colunas A a Q)
     """
     linha_destino = encontrar_ultima_linha(ws_destino) + 1
+    linha_destino_nova_aba = encontrar_ultima_linha(ws_nova_aba) + 1
     registros_copiados = 0
+
+    meses_extenso = {1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril', 5: 'Maio', 6: 'Junho', 
+                     7: 'Julho', 8: 'Agosto', 9: 'Setembro', 10: 'Outubro', 11: 'Novembro', 12: 'Dezembro'}
+
+    # Transforma o input "01-2026" no formato que o Excel guardou: "01/01/2026"
+    try:
+        mes_input, ano_input = mes_filtro.strip().split('-')
+        data_alvo_str = f"01/{mes_input}/{ano_input}"
+    except ValueError:
+        data_alvo_str = mes_filtro.strip()
     
     for row in ws_origem.iter_rows(min_row=2, max_col=17):
         
@@ -107,23 +193,74 @@ def copiar_historico_filtrado(ws_origem, ws_destino, mes_filtro):
             
         # A coluna Q é a 17ª coluna. No Python (que começa a contar do 0), é o índice 16 da tupla 'row'.
         celula_mes = row[16]
+        valor_bruto = celula_mes.value
+        valor_mes_celula = ""
+
+        # Padroniza o que vem do Excel para o formato "DD/MM/YYYY"
+        if isinstance(valor_bruto, datetime.date):
+            valor_mes_celula = valor_bruto.strftime("%d/%m/%Y")
+        elif valor_bruto is not None:
+            valor_mes_celula = str(valor_bruto).strip().split(" ")[0]
         
-        # Transforma o valor da célula em string limpa para comparar com o que o usuário digitou
-        valor_mes_celula = str(celula_mes.value).strip() if celula_mes.value else ""
-        
-        # A CATRACA: Se o mês for igual ao digitado, nós copiamos a linha
-        if valor_mes_celula == mes_filtro.strip():
+        # A CATRACA: Se o mês for igual ao filtrado, nós copiamos a linha
+        if valor_mes_celula == data_alvo_str:
             for col_idx, cell_origem in enumerate(row, start=1):
                 celula_destino = ws_destino.cell(row=linha_destino, column=col_idx)
-                celula_destino.value = cell_origem.value
+                celula_nova = ws_nova_aba.cell(row=linha_destino_nova_aba, column=col_idx)
                 
+                if col_idx == 16 and cell_origem.value is not None:
+                    valor_p = cell_origem.value
+                    valor_calculado = valor_p
+
+                    if isinstance(valor_p, datetime.date):
+                        valor_calculado = meses_extenso.get(valor_p.month, valor_p)
+                    elif isinstance(valor_p, str) and "/" in valor_p:
+                        try:
+                            mes_num = int(valor_p.split("/")[1])
+                            valor_calculado = meses_extenso.get(mes_num, valor_p)
+                        except:
+                            pass
+                    celula_destino.value = valor_calculado
+                    celula_nova.value = valor_calculado
+                else:
+                    celula_destino.value = cell_origem.value
+                    celula_nova.value = cell_origem.value
+
                 if cell_origem.has_style:
                     celula_destino.number_format = cell_origem.number_format
+                    celula_nova.number_format = cell_origem.number_format
+
+            # --- Fórmulas EXCLUSIVAS da aba Parcelas Pagas ---
+            ws_destino.cell(row=linha_destino, column=18).value = f"=N{linha_destino}/M{linha_destino}"
+            ws_destino.cell(row=linha_destino, column=18).number_format = "0.00%"
+            ws_destino.cell(row=linha_destino, column=19).value = mes_faturamento
+
+            # --- Fórmulas EXCLUSIVAS da nova aba MENSAL ---
+            # 1. Coluna R (18): =N{row}/M{row}
+            ws_nova_aba.cell(row=linha_destino_nova_aba, column=18).value = f"=N{linha_destino_nova_aba}/M{linha_destino_nova_aba}"
+            ws_nova_aba.cell(row=linha_destino_nova_aba, column=18).number_format = "0.00%" 
+            
+            # 2. Coluna S (19): =M{row} * 3.5%
+            ws_nova_aba.cell(row=linha_destino_nova_aba, column=19).value = f"=M{linha_destino_nova_aba}*3.5%"
+            ws_nova_aba.cell(row=linha_destino_nova_aba, column=19).number_format = '"R$" #,##0.00'
             
             linha_destino += 1
+            linha_destino_nova_aba += 1
             registros_copiados += 1
             
     return registros_copiados
+
+def gerar_nome_aba_mes(mes_referencia):
+    """
+    Converte o input '01-2026' no formato de aba 'Jan.26'.
+    """
+    meses_abrev = {"01": "Jan", "02": "Fev", "03": "Mar", "04": "Abr", "05": "Mai", "06": "Jun",
+                   "07": "Jul", "08": "Ago", "09": "Set", "10": "Out", "11": "Nov", "12": "Dez"}
+    try:
+        mes, ano = mes_referencia.strip().split('-')
+        return f"{meses_abrev.get(mes, mes)}.{ano[-2:]}"
+    except ValueError:
+        return mes_referencia
 
 # ---------------------------------------------------------
 # SEÇÃO 2: INTERFACE STREAMLIT
@@ -135,7 +272,8 @@ st.title("📊 Processador de Benefícios e Comissionamento")
 with st.form("form_processamento"):
     arquivo_parceiro = st.file_uploader("1️⃣ Arquivo do Parceiro (Benefits_Comissionamento_Sênior.xlsx)", type=["xlsx"])
     arquivo_base = st.file_uploader("2️⃣ Arquivo BASE (Acompanhamento creditas base.xlsx)", type=["xlsx", "xlsm"])
-    mes_referencia = st.text_input("📅 Mês de Referência (Filtro da Coluna Q)", value="01-2026", help="Digite no formato MM-AAAA")
+    mes_referencia = st.text_input("📅 Mês de Referência Comissionamento (Filtro da Coluna Q)", value="01-2026", help="Digite no formato MM-AAAA")
+    mes_faturamento = st.text_input("🏷️ Mês de Faturamento (Coluna M)", value="Janeiro", help="Ex: Janeiro, Fevereiro, etc.")
 
     submit = st.form_submit_button("Iniciar", type="primary")
 
@@ -146,9 +284,7 @@ if submit:
         with st.status("🚀 Processando...", expanded=True) as status:
             try:
                 st.write("📥 Lendo arquivos na memória (isso pode levar alguns segundos)...")
-                # Parceiro carrega apenas valores (data_only=True) para ignorar fórmulas pesadas
                 parceiro_wb = openpyxl.load_workbook(arquivo_parceiro, data_only=True)
-                # Base carrega com data_only=False para preservar as fórmulas existentes lá dentro
                 base_wb = openpyxl.load_workbook(arquivo_base, data_only=False)
 
                 aba_parceiro_nome = "Apoio | Originação e Repasse"
@@ -163,8 +299,8 @@ if submit:
                 ws_parceiro = parceiro_wb[aba_parceiro_nome]
                 ws_base = base_wb[aba_base_nome]
 
-                st.write(f"🔄 Copiando dados de '{aba_parceiro_nome}' para '{aba_base_nome}'...")
-                linha_inicio, linha_fim, qtd_copiada = copiar_originacao_para_base(ws_parceiro, ws_base)
+                st.write(f"🔄 Filtrando coluna M pelo mês anterior a '{mes_faturamento}' e copiando para '{aba_base_nome}'...")
+                linha_inicio, linha_fim, qtd_copiada = copiar_originacao_para_base(ws_parceiro, ws_base, mes_faturamento)
                 st.write(f"✅ {qtd_copiada} linhas copiadas com sucesso!")
 
                 if qtd_copiada > 0:
@@ -184,9 +320,25 @@ if submit:
                 ws_hist = parceiro_wb[aba_parceiro_hist]
                 ws_parcelas = base_wb[aba_base_parcelas]
 
+                # Nome da aba usa o mês de referência digitado (ex: Fev.26)
+                nome_nova_aba = gerar_nome_aba_mes(mes_referencia)
+                st.write(f"🔄 Criando nova aba '{nome_nova_aba}'...")
+
+                if nome_nova_aba not in base_wb.sheetnames:
+                    ws_nova = base_wb.create_sheet(nome_nova_aba)
+                    for col in range(1, 18):
+                        c_origem = ws_hist.cell(row=1, column=col)
+                        c_destino = ws_nova.cell(row=1, column=col)
+                        c_destino.value = c_origem.value
+                        if c_origem.has_style:
+                            c_destino._style = copy(c_origem._style)
+                else:
+                    ws_nova = base_wb[nome_nova_aba]
+
+                # Filtro usa o mês ANTERIOR ao de referência (ex: 02-2026 → busca 01-2026)
                 mes_filtro = calcular_mes_anterior(mes_referencia)
-                st.write(f"🔄 Filtrando por {mes_filtro} (mês anterior a {mes_referencia}) e copiando para '{aba_base_parcelas}'...")
-                qtd_hist = copiar_historico_filtrado(ws_hist, ws_parcelas, mes_filtro)
+                st.write(f"🔄 Filtrando por {mes_filtro} (mês anterior a {mes_referencia}) e copiando para '{aba_base_parcelas}' e '{nome_nova_aba}'...")
+                qtd_hist = copiar_historico_filtrado(ws_hist, ws_parcelas, ws_nova, mes_filtro, mes_faturamento)
                 st.write(f"✅ {qtd_hist} linhas históricas copiadas com sucesso!")
 
                 st.write("💾 Gerando arquivo atualizado para download...")
@@ -194,8 +346,7 @@ if submit:
                 base_wb.save(output)
                 output.seek(0)
 
-                # Limpeza severa de memória (obrigatório para nosso cenário de 10MB+)
-                del parceiro_wb, base_wb, ws_parceiro, ws_base, ws_hist, ws_parcelas
+                del parceiro_wb, base_wb, ws_parceiro, ws_base, ws_hist, ws_parcelas, ws_nova
                 gc.collect()
 
                 status.update(label="✅ Processamento Concluído!", state="complete", expanded=False)
