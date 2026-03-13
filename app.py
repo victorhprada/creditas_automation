@@ -254,12 +254,17 @@ def copiar_antecipo_para_base(ws_hist_antecipo, ws_base_antecipo, mes_referencia
     """
     Filtra a aba 'Histórico Antecipo' do parceiro pela coluna G (mês anterior ao
     mes_referencia, no formato DD/MM/YYYY) e copia as colunas A–J para a aba
-    'ANTECIPO' da base na primeira linha vazia.
+    'ANTECIPO' da base na primeira linha vazia. Em seguida preenche as colunas
+    K (valor 2.75), L (=MONTH(G)) e M (=TEXT(DATE(ano;L;1);"mmmm")).
     """
     mes_filtro = calcular_mes_anterior(mes_referencia)
     mes_alvo, ano_alvo = map(int, mes_filtro.split('-'))
 
-    linha_destino = encontrar_ultima_linha(ws_base_antecipo) + 1
+    # Linha de referência para copiar o number_format da coluna K
+    linha_ref_k = encontrar_ultima_linha(ws_base_antecipo)
+    formato_k = ws_base_antecipo.cell(row=linha_ref_k, column=11).number_format or '"R$" #,##0.00'
+
+    linha_destino = linha_ref_k + 1
     registros_copiados = 0
 
     for row in ws_hist_antecipo.iter_rows(min_row=2, max_col=10):
@@ -291,6 +296,17 @@ def copiar_antecipo_para_base(ws_hist_antecipo, ws_base_antecipo, mes_referencia
             cell_destino.value = cell_origem.value
             if cell_origem.has_style:
                 cell_destino.number_format = cell_origem.number_format
+
+        # Coluna K (11): valor fixo 2.75 com formato de moeda da coluna
+        celula_k = ws_base_antecipo.cell(row=linha_destino, column=11)
+        celula_k.value = 2.75
+        celula_k.number_format = formato_k
+
+        # Coluna L (12): extrai o número do mês a partir da coluna G
+        ws_base_antecipo.cell(row=linha_destino, column=12).value = f"=MONTH(G{linha_destino})"
+
+        # Coluna M (13): nome do mês por extenso usando o ano dinâmico do filtro
+        ws_base_antecipo.cell(row=linha_destino, column=13).value = f'=TEXT(DATE({ano_alvo};L{linha_destino};1);"mmmm")'
 
         linha_destino += 1
         registros_copiados += 1
