@@ -306,7 +306,8 @@ def copiar_antecipo_para_base(ws_hist_antecipo, ws_base_antecipo, mes_referencia
         ws_base_antecipo.cell(row=linha_destino, column=12).value = f"=MONTH(G{linha_destino})"
 
         # Coluna M (13): nome do mês por extenso usando o ano dinâmico do filtro
-        ws_base_antecipo.cell(row=linha_destino, column=13).value = f'=TEXT(DATE({ano_alvo};L{linha_destino};1);"mmmm")'
+        # openpyxl exige sintaxe inglesa (vírgulas); o Excel converte para ponto e vírgula conforme o locale
+        ws_base_antecipo.cell(row=linha_destino, column=13).value = f'=TEXT(DATE({ano_alvo},L{linha_destino},1),"mmmm")'
 
         linha_destino += 1
         registros_copiados += 1
