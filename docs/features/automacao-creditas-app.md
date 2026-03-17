@@ -2,7 +2,7 @@
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 # Automação de Processamento de Benefícios e Comissionamento
-> Versão: 1.0.0 | Data: 03/2026 | Autor: main | Status: ✅ Entregue
+> Versão: 1.1.0 | Data: 03/2026 | Autor: main | Status: ✅ Entregue
 
 ---
 
@@ -15,11 +15,13 @@ Especificamente:
 - Filtrar o histórico de comissionamento por mês de referência (coluna Q) e gerar, em um único passo:
   - atualizações na aba `Parcelas pagas` (com fórmulas adicionais), e
   - uma **aba mensal nova** (ex: `Fev.26`) com um recorte pronto para análise.
+- Copiar o **histórico de antecipo** da aba `Histórico Antecipo` do parceiro (filtro na coluna G pelo mês anterior ao de referência) para a aba `ANTECIPO` da base, preenchendo colunas K–M (valor fixo 2,75, mês numérico e nome do mês por extenso).
 
 Regras de negócio importantes:
 
 - Para originação, o filtro na coluna M usa o **mês anterior ao faturamento**.
 - Para histórico, o filtro na coluna Q usa o **mês anterior ao mês de referência digitado**, mas o **nome da aba** permanece o do mês de referência (ex: aba `Fev.26` contendo dados de janeiro).
+- Para antecipo, o filtro na coluna G considera **mês e ano** do mês anterior ao de referência; as fórmulas em L e M usam ano dinâmico (extraído do filtro).
 
 O objetivo é reduzir erros manuais, padronizar o processo e permitir que qualquer pessoa do time consiga gerar planilhas atualizadas a partir de dois arquivos de entrada.
 
@@ -63,6 +65,7 @@ O script precisava:
     - copiar originação (`copiar_originacao_para_base`),
     - preencher fórmulas (`preencher_formulas_colunas_r_v`),
     - copiar histórico para duas abas (`copiar_historico_filtrado`),
+    - copiar antecipo e preencher K–M (`copiar_antecipo_para_base`),
     - gerar nome de aba mensal (`gerar_nome_aba_mes`).
   - A camada Streamlit apenas orquestra: lê arquivos, chama funções de negócio, exibe logs e oferece o download.
 - Por que foi escolhida:
@@ -92,6 +95,7 @@ O script precisava:
    - filtro pela coluna Q (histórico)
    - criação de nova aba mensal
    - aplicação de fórmulas R–V e cálculos adicionais
+   - filtro pela coluna G (antecipo) e preenchimento de K–M
    ↓
 [Workbook BASE atualizado em memória]
    ↓
@@ -110,6 +114,7 @@ Principais áreas:
 - Funções de normalização e interpretação de datas/textos.
 - Regras de cópia e filtro para originação (coluna M).
 - Regras de cópia e filtro para histórico (coluna Q), incluindo criação de aba mensal.
+- Regras de cópia e filtro para antecipo (coluna G) e preenchimento das colunas K–M na aba `ANTECIPO`.
 - Camada Streamlit de interface com o usuário.
 
 ---
@@ -195,6 +200,20 @@ Centraliza a lógica de “copiar para duas abas diferentes com regras diferente
 
 ---
 
+### `copiar_antecipo_para_base(ws_hist_antecipo, ws_base_antecipo, mes_referencia)`  
+**Responsabilidade:**  
+- Filtrar a aba `Histórico Antecipo` do parceiro pela **coluna G** (datas no formato DD/MM/YYYY), considerando **mês e ano** do mês anterior ao `mes_referencia`.  
+- Copiar as colunas A–J para a aba `ANTECIPO` da base na primeira linha vazia.  
+- Preencher coluna K com o valor **2,75** usando o formato de moeda já existente na coluna (copiado da última linha preenchida).  
+- Preencher coluna L com a fórmula `=MONTH(G{linha})`.  
+- Preencher coluna M com a fórmula `=TEXT(DATE({ano},L{linha},1),"mmmm")`, onde o ano é dinâmico (extraído do mês anterior ao de referência).
+
+**Por que:** Automatiza a carga de antecipo e garante que as colunas K–M fiquem preenchidas com valor fixo e fórmulas corretas. O ano na fórmula da coluna M acompanha o período filtrado.
+
+**Detalhe técnico:** As fórmulas são escritas em sintaxe inglesa (vírgulas); o openpyxl exige isso para que o Excel as reconheça ao abrir o arquivo (o Excel converte para ponto e vírgula conforme o locale).
+
+---
+
 ### `gerar_nome_aba_mes(mes_referencia)`  
 **Responsabilidade:** Converter `MM-AAAA` para o formato de aba `AbrevMes.AA` (ex: `02-2026` → `Fev.26`).  
 **Por que:** Padronizar o nome das abas mensais, facilitando navegação e evitando variações de nomenclatura.
@@ -209,7 +228,7 @@ Campos:
 
 - `arquivo_parceiro`: upload do Excel do parceiro (`Benefits_Comissionamento_Sênior.xlsx`).
 - `arquivo_base`: upload do Excel base (`Acompanhamento creditas base.xlsx`).
-- `mes_referencia`: texto `MM-AAAA` para o mês de referência do comissionamento (usado na coluna Q e no nome da aba nova).
+- `mes_referencia`: texto `MM-AAAA` para o mês de referência do comissionamento (usado na coluna Q, no nome da aba nova e no filtro da coluna G do antecipo).
 - `mes_faturamento`: nome do mês de faturamento (usado na coluna M e como rótulo em `Parcelas pagas`).
 
 Botão:
@@ -232,7 +251,10 @@ Botão:
    - Cria ou reutiliza a aba mensal (`ws_nova`) e replica cabeçalho.
    - Calcula `mes_filtro = calcular_mes_anterior(mes_referencia)` (ex: `02-2026` → `01-2026`).
    - Chama `copiar_historico_filtrado` para preencher `Parcelas pagas` e a aba mensal.
-5. Gera o arquivo final em memória e exibe o botão de download.
+5. Valida e processa **Etapa 3 — Antecipo**:
+   - Usa `Histórico Antecipo` (parceiro) e `ANTECIPO` (base).
+   - Chama `copiar_antecipo_para_base`: filtra pela coluna G (mês e ano do mês anterior ao de referência), copia A–J e preenche K (2,75), L (`=MONTH(G...)`) e M (`=TEXT(DATE(ano,L,1),"mmmm")`).
+6. Gera o arquivo final em memória e exibe o botão de download.
 
 ---
 
@@ -255,6 +277,10 @@ Botão:
   A fórmula da coluna S na aba mensal usa `*3.5%` fixo.  
   → Se esse percentual variar por parceiro/campanha, transformar em configuração (entrada de usuário ou tabela de parâmetros).
 
+- **Fórmulas em português vs. openpyxl**  
+  O openpyxl espera fórmulas em sintaxe inglesa (vírgulas). Fórmulas escritas com ponto e vírgula podem não ser reconhecidas e deixar células vazias.  
+  → Manter vírgulas no código; o Excel converte para o locale ao abrir.
+
 ---
 
 ## 🧪 Como testar manualmente
@@ -264,9 +290,11 @@ Botão:
 - Arquivo do parceiro com:
   - Aba `Apoio | Originação e Repasse`, coluna M com datas/meses válidos.
   - Aba `Histórico de relatórios de comi`, coluna Q com datas no formato compatível (ex: `DD/MM/AAAA`).
+  - Aba `Histórico Antecipo`, coluna G com datas no formato DD/MM/YYYY.
 - Arquivo base com:
   - Aba `CREDITAS BASE` contendo pelo menos uma linha com fórmulas em R–V.
   - Aba `Parcelas pagas` criada.
+  - Aba `ANTECIPO` criada (com pelo menos uma linha com formatação na coluna K, se houver dados).
 
 ### Cenário principal
 
@@ -294,6 +322,11 @@ Botão:
   - Na aba `Fev.26`:
     - Coluna R = `N/M` (percentual).
     - Coluna S = `M * 3.5%` com formato moeda.
+
+- Etapa 3:
+  - Log indica filtro na coluna G pelo mês anterior (ex: `01-2026`).
+  - Apenas linhas da aba `Histórico Antecipo` cuja coluna G tem mês/ano do mês anterior são copiadas para `ANTECIPO`.
+  - Novas linhas têm coluna K = 2,75 (moeda), L = `=MONTH(G{linha})`, M = `=TEXT(DATE(2026,L{linha},1),"mmmm")` (ano dinâmico).
 
 ### Edge cases importantes
 
