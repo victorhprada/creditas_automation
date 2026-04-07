@@ -1,163 +1,180 @@
-# 📊 Automação Creditas — Processador de Benefícios e Comissionamento
+# 📊 Automação Creditas - Processador de Benefícios e Comissionamento
 
-> **Um único fluxo:** dois arquivos Excel + mês de referência → planilha base consolidada, com originação, histórico de parcelas e antecipo — sem trabalho manual repetitivo.
-
-[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.32-FF4B4B?logo=streamlit)](https://streamlit.io/)
+Automação desenvolvida em **Streamlit** para processar e consolidar planilhas de benefícios e comissionamento de parceiros. A aplicação filtra, copia e organiza dados de múltiplas abas entre arquivos Excel, aplicando fórmulas e estilos automaticamente.
 
 ---
 
-## 🎯 O que este projeto resolve
-
-Consolidação **automática** de relatórios de parceiros na planilha base da Creditas: originação/repasse, comissionamento (parcelas pagas + aba mensal) e histórico de antecipo. Tudo filtrado por **mês de referência** e **mês anterior**, com fórmulas e formatações preservadas.
-
----
-
-## 😤 Dores (antes da automação)
-
-| Dor | Impacto |
-|-----|--------|
-| **Planilhas gigantes (10MB+)** atualizadas à mão | Horas perdidas, risco alto de erro humano |
-| **Regras de data “de cabeça”** (mês de faturamento vs. mês anterior vs. mês de referência) | Filtros errados, dados no mês equivocado |
-| **Cópia manual** de originação, histórico e antecipo para várias abas | Processo repetitivo, cansativo e propenso a esquecimentos |
-| **Fórmulas e formatações** que precisavam ser “arrastadas” linha a linha | Inconsistência (CNPJ em notação científica, percentuais, moeda) |
-| **Abas mensais** (ex: Fev.26) criadas e preenchidas manualmente | Atrasos e divergência entre relatório do parceiro e base interna |
-
-O time precisava de **um único ponto de entrada**: enviar o arquivo do parceiro + a planilha base + o mês desejado e receber de volta a base atualizada, padronizada e pronta para análise.
-
----
-
-## ⚙️ Processos (o que a automação faz)
-
-O fluxo é **linear e em 3 etapas**, sempre na mesma ordem:
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  ENTRADA                                                                  │
-│  • Arquivo do Parceiro (Benefits_Comissionamento_Sênior.xlsx)              │
-│  • Arquivo BASE (Acompanhamento creditas base.xlsx)                       │
-│  • Mês de Referência Comissionamento (ex: 02-2026)                         │
-│  • Mês de Faturamento (ex: Fevereiro)                                     │
-└─────────────────────────────────────────────────────────────────────────┘
-                                        │
-                                        ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│  ETAPA 1 — Originação e Repasse                                          │
-│  • Aba: Apoio \| Originação e Repasse → CREDITAS BASE                     │
-│  • Filtro: coluna M = mês ANTERIOR ao faturamento                         │
-│  • Cópia: colunas A–Q + replicação de fórmulas/estilos R–V               │
-└─────────────────────────────────────────────────────────────────────────┘
-                                        │
-                                        ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│  ETAPA 2 — Histórico de Comissionamento                                   │
-│  • Aba: Histórico de relatórios de comi → Parcelas pagas + nova aba       │
-│  • Filtro: coluna Q = mês ANTERIOR ao de referência (ex: 02-2026 → 01)    │
-│  • Nome da nova aba: mês de referência (ex: Fev.26), conteúdo = jan/26    │
-│  • Fórmulas: R = N/M, S = mês faturamento ou M*3.5% na aba mensal         │
-└─────────────────────────────────────────────────────────────────────────┘
-                                        │
-                                        ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│  ETAPA 3 — Antecipo                                                       │
-│  • Aba: Histórico Antecipo → ANTECIPO                                     │
-│  • Filtro: coluna G (data DD/MM/YYYY) = mês e ano ANTERIOR ao referência  │
-│  • Cópia: colunas A–J + preenchimento K = 2,75 (moeda), L = MONTH(G),     │
-│           M = nome do mês por extenso (ano dinâmico)                      │
-└─────────────────────────────────────────────────────────────────────────┘
-                                        │
-                                        ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│  SAÍDA                                                                    │
-│  • CREDITAS_BASE_ATUALIZADA.xlsx para download                            │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-Resumo das **regras de mês**:
-
-- **Originação:** coluna M do parceiro = mês **anterior** ao “Mês de Faturamento”.
-- **Histórico (Q):** coluna Q = mês **anterior** ao “Mês de Referência”; nome da aba = mês de referência (ex.: Fev.26 com dados de jan/26).
-- **Antecipo (G):** coluna G = **mês e ano** do mês anterior ao de referência; ano usado nas fórmulas da coluna M é dinâmico.
-
----
-
-## ✅ Soluções (resultados)
-
-| Antes | Depois |
-|-------|--------|
-| Atualização manual de várias abas e colunas | Um clique: upload + mês → download da base atualizada |
-| Risco de filtrar pelo mês errado | Regras de “mês anterior” aplicadas de forma consistente no código |
-| Fórmulas e formatos copiados à mão | Replicação automática (R–V na base, K–M no antecipo) |
-| Abas mensais e antecipo feitos em planilha | Geração automática de aba mensal (ex: Fev.26) e preenchimento de ANTECIPO |
-| Processo difícil de auditar ou repetir | Código versionado (Git), documentado e executável local ou em Streamlit Cloud |
-
-A solução foi implementada com **funções de regra de negócio** (normalização de datas, filtros por coluna, cópia e fórmulas) e uma **interface Streamlit** que só orquestra: valida abas, chama as funções e entrega o arquivo para download. Assim o processo fica previsível, documentável e fácil de evoluir (ex.: novo parceiro ou nova coluna).
-
----
-
-## 🚀 Desenvolvimento e uso end-to-end
+## 🚀 Como Executar
 
 ### Pré-requisitos
+- Python 3.8+
+- Dependências listadas em `requirements.txt`
 
-- **Python 3.11** (recomendado; o projeto usa `runtime.txt` para Streamlit Cloud)
-- Dependências: `streamlit`, `openpyxl`
-
-### Instalação e execução local
-
+### Instalação
 ```bash
-# Clone o repositório
-git clone https://github.com/victorhprada/creditas_automation.git
-cd creditas_automation
-
-# Ambiente virtual (recomendado)
-python -m venv venv
-# Windows:
-venv\Scripts\activate
-# Linux/macOS:
-# source venv/bin/activate
-
-# Instalar dependências
 pip install -r requirements.txt
+```
 
-# Rodar o app
+### Rodando a aplicação
+```bash
 streamlit run app.py
 ```
 
-O app abre no navegador (em geral em `http://localhost:8501`). Basta fazer upload dos dois arquivos, informar o mês de referência e o mês de faturamento e clicar em **Iniciar**; ao final, baixe `CREDITAS_BASE_ATUALIZADA.xlsx`.
-
-### Deploy (Streamlit Cloud)
-
-- Conecte o repositório ao [Streamlit Community Cloud](https://share.streamlit.io/).
-- O projeto já inclui `runtime.txt` (Python 3.11) e `requirements.txt`.
-- Após o deploy, acesse a URL gerada e use o mesmo fluxo: upload + meses → download.
-
-### Estrutura do projeto
-
-```text
-creditas_automation/
-├── app.py                    # Aplicação Streamlit + regras de negócio (originação, histórico, antecipo)
-├── requirements.txt          # streamlit, openpyxl
-├── runtime.txt              # Python 3.11 (Streamlit Cloud)
-├── README.md                # Este arquivo (dores, processos, soluções, uso)
-├── docs/
-│   └── features/
-│       └── automacao-creditas-app.md   # Documentação técnica detalhada (porquê, arquitetura, funções, testes)
-└── TEMPLATE_NOVA_AUTOMACAO.md         # Template para novas automações (se aplicável)
-```
-
-O desenvolvimento foi feito de forma **end-to-end**: desde a definição das dores e das regras de filtro (mês anterior, colunas M/Q/G), passando pela implementação em Python/Streamlit/openpyxl, até o deploy em nuvem e a documentação técnica em `docs/features/automacao-creditas-app.md`.
+A interface será aberta no navegador. Envie os arquivos e clique em **Iniciar** para processar.
 
 ---
 
-## 📖 Documentação técnica
+## 📋 Entradas Necessárias
 
-Para **porquê** de cada regra, **arquitetura**, **funções** (ex.: `copiar_antecipo_para_base`, `calcular_mes_anterior`), **pontos de atenção** e **como testar** (cenários e edge cases), use:
-
-- **[docs/features/automacao-creditas-app.md](docs/features/automacao-creditas-app.md)** — documentação completa da feature (versão 1.1.0).
+| Campo | Descrição | Exemplo |
+|---|---|---|
+| **Arquivo do Parceiro** | Planilha `.xlsx` enviada pelo parceiro | `Benefits_Comissionamento_Sênior.xlsx` |
+| **Arquivo BASE** | Planilha mestra `.xlsx` ou `.xlsm` | `Acompanhamento creditas base.xlsx` |
+| **Mês de Referência** | Mês/ano para filtro do histórico | `01-2026` |
+| **Mês de Faturamento** | Mês usado como referência para comissionamento | `Janeiro` |
 
 ---
 
-## 📄 Licença e repositório
+## 🏗️ Estrutura de Abas Obrigatórias
 
-- Repositório: [github.com/victorhprada/creditas_automation](https://github.com/victorhprada/creditas_automation)
-- Uso interno Creditas; ajuste de licença conforme política do time.
+### No Arquivo do Parceiro
+- `Apoio | Originação e Repasse`
+- `Histórico de relatórios de comi`
+
+### No Arquivo BASE
+- `CREDITAS BASE`
+- `Parcelas pagas`
+
+> ⚠️ Se alguma aba não existir, o processo é interrompido com erro.
+
+---
+
+## ⚙️ Como Funciona — Fluxo de Processamento
+
+A automação executa **duas etapas principais**:
+
+### Etapa 1 — Originação para BASE
+1. Calcula o **mês anterior** ao Mês de Faturamento informado
+2. Filtra a aba `Apoio | Originação e Repasse` pela **coluna M** (mês)
+3. Copia as colunas **A a Q** das linhas aprovadas para a aba `CREDITAS BASE`
+4. Aplica fórmulas e estilos nas colunas **R a V** com base na linha modelo
+
+### Etapa 2 — Histórico Filtrado
+1. Filtra a aba `Histórico de relatórios de comi` pela **coluna Q** (mês de referência)
+2. Copia os dados para **dois destinos simultaneamente**:
+   - Aba `Parcelas pagas` (com fórmulas extras)
+   - Nova aba mensal (ex: `Jan.26`)
+3. Aplica fórmulas de comissionamento em cada destino
+
+---
+
+## 📐 Regras de Negócio
+
+### Regra 1 — Filtro por Mês Anterior (Etapa 1)
+A coluna **M** da origem é filtrada pelo **mês anterior** ao mês de faturamento:
+
+| Mês de Faturamento | Mês Alvo (Coluna M) |
+|---|---|
+| Janeiro | Dezembro (12) |
+| Fevereiro | Janeiro (1) |
+| Março | Fevereiro (2) |
+| ... | ... |
+
+### Regra 2 — Formatos Aceitos na Coluna M
+A coluna M aceita:
+- Datas reais do Excel
+- Nomes de mês por extenso (`Janeiro`, `Fevereiro`...)
+- Abreviações (`Jan`, `Fev`, `Mar`...)
+- Formatos com barras (`dd/mm/aaaa`)
+
+### Regra 3 — Descarte de Linhas Vazias
+Linhas totalmente vazias são **ignoradas** automaticamente em ambas as etapas.
+
+### Regra 4 — Linha de Destino
+A cópia sempre inicia na **primeira linha vazia real**, identificada pela coluna A. Células apenas formatadas (sem valor) são desconsideradas.
+
+### Regra 5 — Preservação de Estilos
+- `number_format` é preservado em cada célula (datas, moeda, CNPJ, etc.)
+- Estilos completos (cor de fundo, bordas, fontes) são copiados nas fórmulas arrastadas
+
+### Regra 6 — Normalização do Mês (Coluna P)
+Na Etapa 2, a coluna **P** (16ª coluna) é convertida para nome do mês por extenso:
+- `1`, `01` ou data com mês 1 → `Janeiro`
+- Funciona para todos os 12 meses
+
+### Regra 7 — Nomenclatura da Aba Mensal
+| Entrada | Saída |
+|---|---|
+| `01-2026` | `Jan.26` |
+| `10-2026` | `Out.26` |
+| `12-2025` | `Dez.25` |
+
+Se a aba mensal **já existe**, os dados são adicionados a partir da última linha preenchida. Se **não existe**, ela é criada com o cabeçalho copiado da origem.
+
+---
+
+## 📊 Fórmulas Aplicadas
+
+### Na aba `CREDITAS BASE` (Etapa 1)
+| Coluna | Lógica |
+|---|---|
+| **R a V** | Arrastadas da linha modelo anterior, com referências atualizadas |
+
+### Na aba `Parcelas pagas` (Etapa 2)
+| Coluna | Fórmula | Formato |
+|---|---|---|
+| **R** (18) | `=N{linha}/M{linha}` | Percentual (`0.00%`) |
+| **S** (19) | Mês de Faturamento (texto) | — |
+
+### Na aba Mensal (ex: `Jan.26`) (Etapa 2)
+| Coluna | Fórmula | Formato |
+|---|---|---|
+| **R** (18) | `=N{linha}/M{linha}` | Percentual (`0.00%`) |
+| **S** (19) | `=M{linha}*3.5%` | Monetário (`"R$" #,##0.00`) |
+
+---
+
+## 📤 Saída Gerada
+
+Ao concluir sem erro, a aplicação disponibiliza o download de:
+
+**`CREDITAS_BASE_ATUALIZADA.xlsx`**
+
+Este arquivo contém todas as alterações das duas etapas no workbook BASE.
+
+---
+
+## 🔍 Auditoria
+
+Para rastreabilidade, recomenda-se registrar por execução:
+
+1. Data/hora da execução
+2. Nome dos arquivos de entrada
+3. Mês de referência e mês de faturamento informados
+4. Quantidade de linhas copiadas na Etapa 1
+5. Quantidade de linhas copiadas na Etapa 2
+6. Nome da aba mensal utilizada/criada
+7. Status final (sucesso/erro) e mensagem de erro
+
+---
+
+## 🚧 Limitações Conhecidas
+
+- O filtro de mês depende da **padronização correta** da coluna Q
+- Entradas fora do formato `MM-AAAA` podem gerar baixa efetividade do filtro
+- A qualidade da saída depende da **consistência estrutural** das abas de origem
+
+---
+
+## 🛠️ Tecnologias Utilizadas
+
+| Tecnologia | Versão | Função |
+|---|---|---|
+| [Streamlit](https://streamlit.io/) | 1.32.0 | Interface web interativa |
+| [openpyxl](https://openpyxl.readthedocs.io/) | 3.1.2 | Leitura e escrita de arquivos Excel |
+
+---
+
+## 📄 Licença
+
+Projeto interno Creditas — uso restrito.
