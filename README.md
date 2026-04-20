@@ -1,4 +1,4 @@
-# 📊 Automação Creditas - Processador de Benefícios e Comissionamento
+# 📊 Automação - Processador de Benefícios e Comissionamento
 
 Automação desenvolvida em **Streamlit** para processar e consolidar planilhas de benefícios e comissionamento de parceiros. A aplicação filtra, copia e organiza dados de múltiplas abas entre arquivos Excel, aplicando fórmulas e estilos automaticamente.
 
